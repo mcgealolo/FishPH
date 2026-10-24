@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 .env
 .streamlit/secrets.toml
+app_backup_before_redesign.py

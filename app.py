@@ -8,28 +8,38 @@ import pandas as pd
 from PIL import Image, UnidentifiedImageError
 from collections import Counter
 from species_data import SPECIES
+from gbif_negros import get_gbif_records
+
+from ui_theme import (
+    render_hero,
+    render_section,
+    render_prediction_cards,
+    render_sidebar_header,
+    render_footer
+)
+
+
+
 
 
 # -------------------------------------------
-# 1. PAGE CONFIGURATION
+# 1. KAISDAAN PAGE CONFIGURATION
 # -------------------------------------------
 
 st.set_page_config(
-    page_title="FishPH",
+    page_title="Kaisdaan | Inland Fish Research",
     page_icon="🐟",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-st.title("🐟 FishPH")
+# Display redesigned homepage
+render_hero(len(SPECIES))
 
-st.markdown(
-    "### AI-Powered 10 Common Philippine Fish Species Recognition"
-    " and Geographic Distribution"
-)
-
-st.write(
-    "Upload a fish image to identify its possible species "
-    "and explore its documented Philippine distribution."
+st.info(
+    "Kaisdaan is an educational and research prototype. "
+    "Identification results and distribution records "
+    "should be independently verified."
 )
 
 
@@ -115,130 +125,142 @@ def identify_fish(image):
 # 4. RETRIEVE PHILIPPINE GBIF RECORDS
 # -------------------------------------------
 
-@st.cache_data(ttl=86400)
-def get_gbif_records(scientific_name):
 
-    base_url = "https://api.gbif.org/v1"
+# -------------------------------------------
+# FISHBASE SPECIES PROFILE HELPER
+# -------------------------------------------
 
-    try:
-
-        match_response = requests.get(
-            f"{base_url}/species/match",
-            params={
-                "name": scientific_name,
-                "rank": "SPECIES",
-                "strict": "true"
-            },
-            timeout=20
-        )
-
-        match_response.raise_for_status()
-
-        taxon = match_response.json()
-
-        if (
-            taxon.get("rank") != "SPECIES"
-            or taxon.get("matchType") == "NONE"
-        ):
-            return [], None, "Species not resolved in GBIF."
-
-        taxon_key = taxon.get(
-            "acceptedUsageKey",
-            taxon.get("usageKey")
-        )
-
-        if not taxon_key:
-            return [], None, "No GBIF taxon key available."
-
-        occurrence_response = requests.get(
-            f"{base_url}/occurrence/search",
-            params={
-                "taxonKey": taxon_key,
-                "country": "PH",
-                "hasCoordinate": "true",
-                "hasGeospatialIssue": "false",
-                "occurrenceStatus": "PRESENT",
-                "limit": 200
-            },
-            timeout=30
-        )
-
-        occurrence_response.raise_for_status()
-
-        records = occurrence_response.json().get(
-            "results", []
-        )
-
-        points = []
-
-        for record in records:
-
-            lat = record.get("decimalLatitude")
-            lon = record.get("decimalLongitude")
-
-            # Retain georeferenced species-level matches.
-            if (
-                lat is None
-                or lon is None
-                or record.get("speciesKey") != taxon_key
-            ):
-                continue
-
-            points.append({
-                "lat": float(lat),
-                "lon": float(lon),
-                "province": (
-                    record.get("stateProvince")
-                    or "Unspecified"
-                ),
-                "year": record.get("year"),
-                "record_id": record.get("gbifID")
-            })
-
-        return points, taxon_key, None
-
-    except (requests.RequestException, ValueError) as exc:
-
-        return [], None, str(exc)
+def fishbase_profile_url(scientific_name):
+    slug = scientific_name.strip().replace(" ", "-")
+    return f"https://www.fishbase.se/summary/{slug}.html"
 
 
 # -------------------------------------------
-# 5. SIDEBAR
+# 5. SIDEBAR - KAISDAAN
 # -------------------------------------------
 
 with st.sidebar:
+    render_sidebar_header()
 
-    st.header("About FishPH")
-
-    st.write(
-        "FishPH is a prototype using a pretrained "
-        "biological image recognition model."
+    st.markdown(
+        "**Kaisdaan** is an AI-assisted web application "
+        "being developed to identify and document "
+        "fish species associated with the inland waters "
+        "of Negros Occidental."
     )
 
-    st.write(
-        f"Supported candidate species: {len(SPECIES)}"
+    st.divider()
+
+    st.subheader("Project Information")
+
+    st.write("**Focus:** Inland-Water Fish Species")
+    st.write("**Study Area:** Negros Occidental")
+    st.write("**Technology:** BioCLIP and Streamlit")
+    st.write("**Status:** Educational & Research Prototype")
+
+    st.divider()
+
+    st.subheader("Currently Supported Species")
+
+    st.caption(
+        "The current model supports 10 candidate species. "
+        "The Negros Occidental freshwater species "
+        "database is still under development."
     )
 
-    st.warning(
-        "Predictions are experimental. The model "
-        "may misidentify fish, especially species "
-        "not included in its candidate list."
-    )
-
-    with st.expander("Supported species"):
+    with st.expander("View Supported Species"):
 
         for name, info in SPECIES.items():
-            st.write(f"{info['common']} — {name}")
+
+            st.write(
+                f"{info['common']} — {name}"
+            )
+
+    st.divider()
+
+    st.subheader("Disclaimer")
+
+    st.warning(
+        "Kaisdaan is an experimental AI-powered "
+        "fish identification application. "
+        "Results are for educational and "
+        "demonstration purposes only."
+    )
+
+    st.caption(
+        "Species identification and geographic "
+        "information should be independently verified."
+    )
+
+    st.divider()
+
+    st.subheader("Acknowledgments")
+
+    st.caption(
+        "Powered by BioCLIP, OpenCLIP, PyTorch, "
+        "Streamlit, GBIF, and FishBase. "
+        "All third-party resources are credited "
+        "to their respective creators."
+    )
+
+
+def fishbase_profile_url(scientific_name):
+    # Constructs the FishBase species summary address.
+    slug = scientific_name.replace(" ", "-")
+    return f"https://www.fishbase.se/summary/{slug}.html"
 
 
 # -------------------------------------------
-# 6. IMAGE UPLOAD
+# 6. FISH IMAGE INPUT
+# Upload Photo or Live Camera Capture
 # -------------------------------------------
-
-uploaded_file = st.file_uploader(
-    "Choose a fish photograph",
-    type=["jpg", "jpeg", "png"]
+render_section(
+    "01 / IMAGE RECOGNITION",
+    "Identify a Fish",
+    "Upload a clear fish photograph to explore "
+    "its possible species identification."
 )
+
+
+st.markdown("#### Choose Image Source")
+
+image_source = st.radio(
+    "How would you like to identify your fish?",
+    options=[
+        "Upload a Photo",
+        "Capture Using Camera"
+    ],
+    horizontal=True,
+    key="kaisd_image_source"
+)
+
+uploaded_file = None
+
+if image_source == "Upload a Photo":
+
+    st.info(
+        "Upload a clear photograph of the fish "
+        "in JPG, JPEG, or PNG format."
+    )
+
+    uploaded_file = st.file_uploader(
+        "Choose a fish photograph",
+        type=["jpg", "jpeg", "png"],
+        key="kaisd_upload"
+    )
+
+else:
+
+    st.info(
+        "Allow camera access, position the fish "
+        "clearly in the frame, and take a photograph."
+    )
+
+    uploaded_file = st.camera_input(
+        "Take a Fish Photograph",
+        key="kaisd_camera"
+    )
+
 
 if uploaded_file is not None:
 
@@ -254,11 +276,17 @@ if uploaded_file is not None:
 
     with column1:
 
+        
         st.image(
             image,
-            caption="Uploaded Fish Photograph",
+            caption=(
+                "Captured Fish Photograph"
+                if image_source == "Capture Using Camera"
+                else "Uploaded Fish Photograph"
+            ),
             use_container_width=True
-        )
+    )
+
 
     with st.spinner("Analyzing fish image using BioCLIP..."):
 
@@ -280,7 +308,7 @@ if uploaded_file is not None:
 
     with column2:
 
-        st.subheader("Identification Result")
+        st.markdown("#### Species Identification")
 
         st.write(
             f"**Common Name:** {fish['common']}"
@@ -319,6 +347,40 @@ if uploaded_file is not None:
             )
         )
 
+
+        st.write(
+            "**Local / Hiligaynon Name:** "
+            + (fish.get("local_name") or "Not yet verified")
+        )
+
+        if fish.get("local_name_source"):
+            st.markdown(
+                f"[Local-name reference]"
+                f"({fish['local_name_source']})"
+        )
+
+        st.write(
+            "**Classification:** "
+            + fish["status"]
+        )
+
+        st.write(
+            "**Documented locality:** "
+            + fish["local_evidence"]
+        )
+
+
+        st.write(
+            "**Habitat group:** "
+            + fish["habitat"]
+        )
+
+        st.markdown(
+            f"[Read the locality research study]"
+            f"({fish['source']})"
+        )
+
+
         if fish.get("notes"):
             st.info(fish["notes"])
 
@@ -334,41 +396,88 @@ if uploaded_file is not None:
         "calibrated probability of correct identification."
     )
 
+    
     # ---------------------------------------
-    # 7. TOP THREE PREDICTIONS
+    # 7. TOP THREE CANDIDATE SPECIES
     # ---------------------------------------
 
-    st.subheader("Top 3 Possible Species")
-
-    for result in predictions:
-
-        candidate = result["scientific_name"]
-        candidate_info = SPECIES[candidate]
-
-        st.write(
-            f"**{candidate_info['common']}** "
-            f"({candidate}) — "
-            f"{result['score']}%"
+    render_section(
+            "02 / CLASSIFICATION RESULTS",
+            "Top 3 Possible Species",
+            "BioCLIP compares the uploaded photograph "
+            "against the supported species catalogue."
         )
 
-    # ---------------------------------------
-    # 8. GEOGRAPHIC DISTRIBUTION
-    # ---------------------------------------
+    render_prediction_cards(
+            predictions,
+            SPECIES
+        )
 
-    st.subheader(
-        "Documented Philippine Occurrence Records"
+
+
+    
+    render_section(
+        "03 / SPECIES BIOLOGY",
+        "Taxonomy and Biological Information",
+        "Explore the predicted fish species through "
+        "available FishBase scientific references."
     )
 
-    with st.spinner("Loading GBIF occurrence records..."):
 
-        points, taxon_key, error = get_gbif_records(
-            scientific_name
+    st.write(
+            f"**Species:** *{scientific_name}*"
+        )
+
+    st.write(
+            "Consult the FishBase profile for current taxonomy, "
+            "family, habitat, maximum size, ecology, biology, "
+            "distribution, and available conservation references."
+        )
+
+    st.link_button(
+            "View Complete FishBase Species Profile",
+            fishbase_profile_url(scientific_name)
+        )
+
+    st.caption(
+            "Biological details are maintained by FishBase. "
+            "Availability varies by species, and the FishBase "
+            "classification may differ from historical literature."
+        )
+
+
+    # ---------------------------------------
+    # 8. NEGROS OCCIDENTAL GBIF OCCURRENCES
+    # ---------------------------------------
+
+    st.divider()
+
+    render_section(
+        "04 / GEOGRAPHIC DISTRIBUTION",
+        "Fish Occurrences in Negros Occidental",
+        "Explore reported biodiversity occurrence "
+        "records with coordinates within the "
+        "provincial boundary."
+    )
+
+
+    st.write(
+        "The following map displays reported biodiversity "
+        "occurrence coordinates within the Negros Occidental "
+        "provincial boundary."
+    )
+
+    with st.spinner(
+        "Retrieving and filtering GBIF records..."
+    ):
+        points, taxon_key, error, metadata = (
+            get_gbif_records(scientific_name)
         )
 
     if error:
 
         st.warning(
-            "Unable to retrieve biodiversity records: "
+            "Unable to retrieve occurrence data: "
             + error
         )
 
@@ -376,72 +485,107 @@ if uploaded_file is not None:
 
         df = pd.DataFrame(points)
 
+        st.success(
+            f"{len(df)} reported occurrence record(s) "
+            "matched the provincial boundary."
+        )
+
+        # Map the records
         st.map(
             df,
             latitude="lat",
             longitude="lon"
         )
 
-        st.write(
-            "Georeferenced Philippine GBIF records "
-            "from a sample of up to 200 results."
+        st.caption(
+            "Each pin represents coordinates supplied "
+            "in a biodiversity occurrence record."
         )
 
-        provinces = Counter(
-            str(p["province"]).strip()
-            for p in points
-            if p["province"] != "Unspecified"
+        # Display available record information
+        st.subheader("Occurrence Record Details")
+
+        columns = [
+            "year",
+            "locality",
+            "dataset",
+            "basis_of_record",
+            "coordinate_uncertainty_m",
+            "record_url"
+        ]
+
+        st.dataframe(
+            df[columns],
+            hide_index=True
         )
 
-        if provinces:
+        # CSV download of matching results
+        csv_data = df.to_csv(
+            index=False
+        ).encode("utf-8")
 
-            st.write("Reported province or area names:")
-
-            for province, count in provinces.most_common(10):
-                st.write(
-                    f"- {province}: {count} sampled records"
-                )
-
-        else:
-            st.info(
-                "The sampled records contain coordinates, "
-                "but no province names were provided."
-            )
+        st.download_button(
+            label="Download Occurrence Records (CSV)",
+            data=csv_data,
+            file_name=(
+                "Kaisdaan_GBIF_"
+                + scientific_name.replace(" ", "_")
+                + ".csv"
+            ),
+            mime="text/csv"
+        )
 
     else:
 
         st.info(
-            "No matching georeferenced Philippine "
-            "records were returned in this query."
+            "No matching georeferenced occurrences "
+            "were returned within Negros Occidental "
+            "for this species."
         )
+
+    if metadata:
+
+        st.caption(
+            "GBIF bounding-box records examined: "
+            f"{metadata.get('records_scanned', 0)}"
+        )
+
+        if metadata.get("truncated"):
+
+            st.warning(
+                "This query reached the prototype's "
+                "record limit. Additional occurrence "
+                "records may exist."
+            )
 
     if taxon_key:
 
-        gbif_link = (
+        gbif_url = (
             "https://www.gbif.org/occurrence/search"
             f"?country=PH&taxon_key={taxon_key}"
         )
 
         st.markdown(
-            f"[Explore records on GBIF]({gbif_link})"
+            f"[Explore this species on GBIF]"
+            f"({gbif_url})"
         )
 
     st.caption(
-        "GBIF map points are reported occurrences, "
-        "not confirmed native ranges. The first 200 "
-        "records are not a representative abundance "
-        "sample. Location information may be historical, "
-        "incomplete, or incorrectly recorded."
+        "Data: GBIF and contributing publishers. "
+        "Provincial boundary: geoBoundaries. "
+        "Historical occurrences do not necessarily "
+        "represent current populations, native range, "
+        "or abundance. Records and coordinates "
+        "require scientific verification."
     )
 
 
 # -------------------------------------------
-# 9. FOOTER
+# 9. KAISDAAN FOOTER
 # -------------------------------------------
 
 st.divider()
 
-st.caption(
-    "FishPH Prototype | BioCLIP Image Recognition "
-    "| FishBase Curated Data | GBIF Occurrences"
-)
+render_footer()
+
+
